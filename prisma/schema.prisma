@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
   provider = "prisma-client-js"
@@ -13,3 +8,68 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+model Debate {
+  id          String      @id @default(cuid())
+  title       String
+  description String
+  tags        String[]
+  category    String
+  bannerUrl   String?
+  duration    Int
+  endsAt      DateTime
+  creatorId   String
+  creator     User        @relation("UserDebates", fields: [creatorId], references: [id])
+
+  sideSupport Argument[]  @relation("SupportArguments")
+  sideOppose  Argument[]  @relation("OpposeArguments")
+
+  createdAt   DateTime    @default(now())
+}
+
+model Argument {
+  id         String   @id @default(cuid())
+  content    String
+  side       Side
+  authorId   String
+  author     User     @relation(fields: [authorId], references: [id])
+
+  debateId   String
+  debate     Debate   @relation("SupportArguments", fields: [debateId], references: [id]) // default
+
+  // Oppose relation
+  opposeDebateId String?
+  opposeDebate   Debate? @relation("OpposeArguments", fields: [opposeDebateId], references: [id])
+
+  votes      Vote[]
+  createdAt  DateTime @default(now())
+}
+
+model User {
+  id              String    @id @default(cuid())
+  name            String
+  email           String    @unique
+  password        String
+  debates         Debate[]  @relation("UserDebates")
+  arguments       Argument[]
+  votes           Vote[]
+  totalVotes      Int       @default(0)
+  debatesCount    Int       @default(0)
+  createdAt       DateTime  @default(now())
+}
+
+model Vote {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  argumentId String
+  argument   Argument @relation(fields: [argumentId], references: [id])
+  createdAt  DateTime @default(now())
+}
+
+enum Side {
+  SUPPORT
+  OPPOSE
+}
+
+
