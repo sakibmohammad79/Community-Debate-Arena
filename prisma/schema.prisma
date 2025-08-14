@@ -1,4 +1,5 @@
-
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
 generator client {
   provider = "prisma-client-js"
   output   = "../src/generated/prisma"
@@ -9,67 +10,531 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Debate {
-  id          String      @id @default(cuid())
-  title       String
-  description String
-  tags        String[]
-  category    String
-  bannerUrl   String?
-  duration    Int
-  endsAt      DateTime
-  creatorId   String
-  creator     User        @relation("UserDebates", fields: [creatorId], references: [id])
+// This is your complete Prisma schema file for Express.js Backend
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-  sideSupport Argument[]  @relation("SupportArguments")
-  sideOppose  Argument[]  @relation("OpposeArguments")
 
-  createdAt   DateTime    @default(now())
-}
 
-model Argument {
-  id         String   @id @default(cuid())
-  content    String
-  side       Side
-  authorId   String
-  author     User     @relation(fields: [authorId], references: [id])
-
-  debateId   String
-  debate     Debate   @relation("SupportArguments", fields: [debateId], references: [id]) // default
-
-  // Oppose relation
-  opposeDebateId String?
-  opposeDebate   Debate? @relation("OpposeArguments", fields: [opposeDebateId], references: [id])
-
-  votes      Vote[]
-  createdAt  DateTime @default(now())
-}
-
+// User model for authentication and user management
 model User {
-  id              String    @id @default(cuid())
-  name            String
-  email           String    @unique
-  password        String
-  debates         Debate[]  @relation("UserDebates")
-  arguments       Argument[]
-  votes           Vote[]
-  totalVotes      Int       @default(0)
-  debatesCount    Int       @default(0)
-  createdAt       DateTime  @default(now())
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  password      String    // Hashed password for credentials login
+  emailVerified Boolean   @default(false)
+  image         String?
+  role          UserRole  @default(USER)
+  isActive      Boolean   @default(true)
+  isBanned      Boolean   @default(false)
+  banReason     String?
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  debates       Debate[]
+  participants  DebateParticipant[]
+  arguments     Argument[]
+  votes         Vote[]
+  replies       Reply[]
+  preferences   UserPreference?
+  notifications Notification[]
+  auditLogs     AuditLog[]
+  reports       Report[]
+  reportedBy    Report[]  @relation("ReportedUser")
+
+  @@map("users")
 }
 
+
+
+// Debate Categories
+model Category {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  slug        String   @unique
+  color       String   @default("#6366f1") // Tailwind indigo-500
+  icon        String?  // Icon name or emoji
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  debates Debate[]
+
+  @@index([isActive, sortOrder])
+  @@map("categories")
+}
+
+// Tags for debates
+model Tag {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique
+  color     String   @default("#6B7280") // Gray color
+  isActive  Boolean  @default(true)
+  useCount  Int      @default(0) // How many times used
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  debates DebateTag[]
+
+  @@index([isActive, useCount])
+  @@map("tags")
+}
+
+// Main Debate model
+model Debate {
+  id           String        @id @default(cuid())
+  title        String
+  description  String        @db.Text
+  image        String? // URL to debate banner/image
+  slug         String        @unique
+  status       DebateStatus  @default(ACTIVE)
+  duration     Int // Duration in minutes
+  startTime    DateTime      @default(now())
+  endTime      DateTime
+  viewCount    Int           @default(0)
+  isPublic     Boolean       @default(true)
+  allowReplies Boolean       @default(true)
+  maxArguments Int?          // Max arguments per user per side
+  featured     Boolean       @default(false)
+  trending     Boolean       @default(false)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  // Foreign keys
+  authorId   String
+  categoryId String
+
+  // Relations
+  author       User                @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  category     Category            @relation(fields: [categoryId], references: [id])
+  tags         DebateTag[]
+  participants DebateParticipant[]
+  arguments    Argument[]
+  summary      DebateSummary?
+  reports      Report[]
+
+  @@index([status, endTime])
+  @@index([authorId])
+  @@index([categoryId])
+  @@index([createdAt])
+  @@index([featured, trending])
+  @@index([isPublic, status])
+  @@map("debates")
+}
+
+// Junction table for debate tags (many-to-many)
+model DebateTag {
+  id       String @id @default(cuid())
+  debateId String
+  tagId    String
+
+  // Relations
+  debate Debate @relation(fields: [debateId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([debateId, tagId])
+  @@map("debate_tags")
+}
+
+// Debate participants with their chosen side
+model DebateParticipant {
+  id               String          @id @default(cuid())
+  debateId         String
+  userId           String
+  side             DebateSide
+  joinedAt         DateTime        @default(now())
+  firstArgumentAt  DateTime? // Track when they posted their first argument
+  replyDeadline    DateTime? // 5 minutes after joining to post first argument
+  isActive         Boolean         @default(true)
+  argumentCount    Int             @default(0) // Cache for performance
+  voteCount        Int             @default(0) // Total votes received
+  
+  // Relations
+  debate Debate @relation(fields: [debateId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([debateId, userId]) // A user can only participate once per debate
+  @@index([debateId, side])
+  @@index([userId])
+  @@map("debate_participants")
+}
+
+// Arguments posted by users
+model Argument {
+  id        String     @id @default(cuid())
+  content   String     @db.Text
+  side      DebateSide
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  editedAt  DateTime? // Track when argument was last edited
+  isEdited  Boolean    @default(false)
+  isDeleted Boolean    @default(false)
+  deletedAt DateTime?
+  voteScore Int        @default(0) // Cache: upvotes - downvotes
+  replyCount Int       @default(0) // Cache: total replies
+
+  // Foreign keys
+  debateId String
+  authorId String
+
+  // Relations
+  debate  Debate  @relation(fields: [debateId], references: [id], onDelete: Cascade)
+  author  User    @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  votes   Vote[]
+  replies Reply[]
+  reports Report[]
+
+  @@index([debateId, side])
+  @@index([createdAt])
+  @@index([authorId])
+  @@index([voteScore])
+  @@index([isDeleted])
+  @@map("arguments")
+}
+
+// Voting system for arguments
 model Vote {
   id         String   @id @default(cuid())
-  userId     String
-  user       User     @relation(fields: [userId], references: [id])
-  argumentId String
-  argument   Argument @relation(fields: [argumentId], references: [id])
+  type       VoteType @default(UPVOTE) // Can be UPVOTE or DOWNVOTE
   createdAt  DateTime @default(now())
+
+  // Foreign keys
+  argumentId String
+  userId     String
+
+  // Relations
+  argument Argument @relation(fields: [argumentId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([argumentId, userId]) // One vote per user per argument
+  @@index([argumentId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("votes")
 }
 
-enum Side {
+// Replies to arguments (bonus feature)
+model Reply {
+  id        String   @id @default(cuid())
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  isDeleted Boolean  @default(false)
+  deletedAt DateTime?
+  isEdited  Boolean  @default(false)
+  editedAt  DateTime?
+
+  // Foreign keys
+  argumentId String
+  authorId   String
+
+  // Relations
+  argument Argument @relation(fields: [argumentId], references: [id], onDelete: Cascade)
+  author   User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  reports  Report[]
+
+  @@index([argumentId])
+  @@index([authorId])
+  @@index([createdAt])
+  @@index([isDeleted])
+  @@map("replies")
+}
+
+// Debate summary (AI-generated or manual)
+model DebateSummary {
+  id           String     @id @default(cuid())
+  content      String     @db.Text
+  winner       DebateSide?
+  supportVotes Int        @default(0)
+  opposeVotes  Int        @default(0)
+  totalVotes   Int        @default(0)
+  winMargin    Float?     // Winning percentage
+  isGenerated  Boolean    @default(false) // AI generated or manual
+  generatedBy  String?    // AI model name or "manual"
+  keyPoints    Json?      // Key arguments from both sides
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  // Foreign keys
+  debateId String @unique
+
+  // Relations
+  debate Debate @relation(fields: [debateId], references: [id], onDelete: Cascade)
+
+  @@map("debate_summaries")
+}
+
+// Banned words for auto-moderation
+model BannedWord {
+  id        String       @id @default(cuid())
+  word      String       @unique
+  severity  WordSeverity @default(MODERATE)
+  isActive  Boolean      @default(true)
+  isRegex   Boolean      @default(false) // Support regex patterns
+  category  String?      // profanity, spam, hate, etc.
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([isActive, severity])
+  @@map("banned_words")
+}
+
+// User preferences (for dark mode, notifications, etc.)
+model UserPreference {
+  id                    String  @id @default(cuid())
+  userId                String  @unique
+  darkMode              Boolean @default(false)
+  emailNotifications    Boolean @default(true)
+  pushNotifications     Boolean @default(true)
+  debateCreated         Boolean @default(true) // Notify when debate created
+  argumentReplied       Boolean @default(true) // Notify when argument replied
+  voteReceived          Boolean @default(false) // Notify when vote received
+  language              String  @default("en")
+  timezone              String  @default("UTC")
+  autoJoinDebates       Boolean @default(false)
+  showOnlineStatus      Boolean @default(true)
+  profileVisibility     ProfileVisibility @default(PUBLIC)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_preferences")
+}
+
+// System notifications
+model Notification {
+  id         String           @id @default(cuid())
+  title      String
+  message    String           @db.Text
+  type       NotificationType @default(INFO)
+  isRead     Boolean          @default(false)
+  actionUrl  String? // URL to redirect when clicked
+  metadata   Json? // Additional context data
+  expiresAt  DateTime? // Auto-delete after expiry
+  userId     String?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  // Relations (optional - for specific user notifications)
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@index([expiresAt])
+  @@map("notifications")
+}
+
+// API Rate Limiting (for Express.js)
+model RateLimit {
+  id        String   @id @default(cuid())
+  identifier String  // IP address or user ID
+  endpoint  String   // API endpoint
+  requests  Int      @default(1)
+  resetTime DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([identifier, endpoint])
+  @@index([resetTime])
+  @@map("rate_limits")
+}
+
+// Audit logs for important actions
+model AuditLog {
+  id         String    @id @default(cuid())
+  action     String    // CREATE, UPDATE, DELETE, LOGIN, etc.
+  entity     String    // debate, argument, user, etc.
+  entityId   String?   // ID of the affected entity
+  userId     String?   // Who performed the action
+  ipAddress  String?
+  userAgent  String?
+  metadata   Json?     // Additional context
+  createdAt  DateTime  @default(now())
+
+  // Relations
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([action])
+  @@index([entity, entityId])
+  @@map("audit_logs")
+}
+
+// Report system for inappropriate content
+model Report {
+  id          String      @id @default(cuid())
+  reason      ReportReason
+  description String?     @db.Text
+  status      ReportStatus @default(PENDING)
+  reviewedBy  String? // Moderator ID
+  reviewedAt  DateTime?
+  resolution  String?     @db.Text // Moderator notes
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // What is being reported (only one should be set)
+  debateId   String?
+  argumentId String?
+  replyId    String?
+  userId     String? // Reported user
+
+  // Who reported
+  reporterId String
+
+  // Relations
+  debate     Debate?   @relation(fields: [debateId], references: [id], onDelete: Cascade)
+  argument   Argument? @relation(fields: [argumentId], references: [id], onDelete: Cascade)
+  reply      Reply?    @relation(fields: [replyId], references: [id], onDelete: Cascade)
+  reportedUser User?   @relation("ReportedUser", fields: [userId], references: [id], onDelete: Cascade)
+  reporter   User      @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([reporterId])
+  @@map("reports")
+}
+
+// System settings/configuration
+model SystemSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  description String?
+  category    String   @default("general") // general, moderation, features, etc.
+  isPublic    Boolean  @default(false) // Can be accessed by frontend
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category])
+  @@map("system_settings")
+}
+
+// Featured content management
+model FeaturedContent {
+  id          String              @id @default(cuid())
+  contentType FeaturedContentType
+  contentId   String // ID of debate, user, etc.
+  title       String
+  description String?
+  image       String?
+  position    Int                 @default(0) // Display order
+  isActive    Boolean             @default(true)
+  startDate   DateTime            @default(now())
+  endDate     DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([contentType, isActive, position])
+  @@index([startDate, endDate])
+  @@map("featured_content")
+}
+
+// Analytics and statistics
+model DailyStats {
+  id              String   @id @default(cuid())
+  date            DateTime @unique @db.Date
+  totalUsers      Int      @default(0)
+  newUsers        Int      @default(0)
+  totalDebates    Int      @default(0)
+  newDebates      Int      @default(0)
+  totalArguments  Int      @default(0)
+  newArguments    Int      @default(0)
+  totalVotes      Int      @default(0)
+  newVotes        Int      @default(0)
+  pageViews       Int      @default(0)
+  uniqueVisitors  Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([date])
+  @@map("daily_stats")
+}
+
+// Enums
+enum UserRole {
+  USER
+  MODERATOR
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum DebateStatus {
+  DRAFT
+  ACTIVE
+  ENDED
+  CANCELLED
+  SUSPENDED
+}
+
+enum DebateSide {
   SUPPORT
   OPPOSE
 }
 
+enum VoteType {
+  UPVOTE
+  DOWNVOTE
+}
 
+enum WordSeverity {
+  LOW
+  MODERATE
+  HIGH
+  SEVERE
+}
+
+enum NotificationType {
+  INFO
+  SUCCESS
+  WARNING
+  ERROR
+  DEBATE_STARTED
+  DEBATE_ENDED
+  DEBATE_ENDING_SOON
+  NEW_ARGUMENT
+  VOTE_RECEIVED
+  REPLY_RECEIVED
+  MENTION
+  REPORT_RESOLVED
+  SYSTEM_UPDATE
+}
+
+enum ReportReason {
+  SPAM
+  HARASSMENT
+  HATE_SPEECH
+  INAPPROPRIATE_CONTENT
+  OFF_TOPIC
+  MISINFORMATION
+  COPYRIGHT
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  UNDER_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
+enum ProfileVisibility {
+  PUBLIC
+  FRIENDS_ONLY
+  PRIVATE
+}
+
+enum FeaturedContentType {
+  DEBATE
+  USER
+  CATEGORY
+  ANNOUNCEMENT
+}
