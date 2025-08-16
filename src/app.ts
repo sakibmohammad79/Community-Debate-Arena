@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import { rateLimit } from 'express-rate-limit';
 import dotenv from 'dotenv';
+import router from './app/router';
 
 // Load environment variables
 dotenv.config();
@@ -39,6 +40,10 @@ app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+
+//application route
+app.use("/api/v1", router);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
