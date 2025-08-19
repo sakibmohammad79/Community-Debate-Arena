@@ -1,9 +1,6 @@
 import app from "./app";
 import { config } from "./config/config";
 
-// Validate required environment variables
-
-const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // Graceful shutdown handling
 process.on('SIGTERM', () => {

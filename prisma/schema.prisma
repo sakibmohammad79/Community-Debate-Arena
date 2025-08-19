@@ -10,8 +10,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// This is your complete Prisma schema file for Express.js Backend
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 
 
